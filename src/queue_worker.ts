@@ -1,0 +1,6 @@
+import { deadLetterPayload, shouldDeadLetter, type LegalJob } from "./legal_job.ts";
+import { infrai } from "./infrai.ts";
+const LEGAL_QUEUE = "legal-jobs";
+export async function handleLegalJob(job: LegalJob): Promise<"retry" | "dead-lettered"> { if (!shouldDeadLetter(job)) return "retry"; await infrai.queue.publish(LEGAL_QUEUE, deadLetterPayload(job), `dlq-${job.id}`); return "dead-lettered"; }
+export async function consumeLegalJobs(): Promise<void> { const result = await infrai.queue.consume(LEGAL_QUEUE, 10, 30) as { messages?: Array<{ message_id: string; payload: LegalJob }> }; for (const message of result.messages ?? []) { const outcome = await handleLegalJob(message.payload); if (outcome === "dead-lettered") await infrai.queue.ack(LEGAL_QUEUE, message.message_id); console.log(`${message.payload.kind} ${message.payload.matterId}: ${outcome}`); } }
+if (process.argv.includes("--live")) consumeLegalJobs().catch((error: unknown) => { console.error(error); process.exitCode = 1; }); else { const sample: LegalJob = { id: "matter-104-delivery", kind: "signed-document-delivery", matterId: "matter-104", attempt: 3, details: { document: "settlement.pdf" } }; console.log(`${sample.kind} ${sample.matterId}: ${shouldDeadLetter(sample) ? "dead-lettered" : "retry"}`); }
