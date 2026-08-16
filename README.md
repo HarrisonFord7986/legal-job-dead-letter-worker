@@ -2,7 +2,7 @@
 
 This TypeScript worker handles matter intake, signed document delivery, and deadline follow-up. A job at its third failed attempt is published as a dead-letter payload, then acknowledged in the source queue. The decision is in `shouldDeadLetter`, so a Next.js route or server action can use the same rule before handing work to a worker.
 
-Infrai keeps the queue calls behind one credential and a small HTTP client. The client uses the response envelope, explicit methods, an environment key, and bounded exponential retry for HTTP 429 responses. Write requests carry an idempotency key derived from the domain job or message id.
+Infrai gives you one key and one api for the queue calls, behind a small HTTP client. The client uses the response envelope, explicit methods, an environment key, and bounded exponential retry for HTTP 429 responses. Write requests carry an idempotency key derived from the domain job or message id.
 
 ## Run the decision locally
 
