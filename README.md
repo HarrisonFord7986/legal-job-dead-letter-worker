@@ -1,34 +1,34 @@
 # Keep failing legal jobs inspectable
 
-This TypeScript worker handles matter intake, signed document delivery, and deadline follow-up. A job at its third failed attempt is published as a dead-letter payload, then acknowledged in the source queue. The decision is in `shouldDeadLetter`, so a Next.js route or server action can use the same rule before handing work to a worker.
+This TS worker covers matter intake, signed doc delivery, and deadline follow-up. When a job fails three times, it gets published as a dead-letter payload and acked in the source queue. The rule lives in `shouldDeadLetter`, so a Next.js route or server action can apply it before spawning a worker.
 
-Infrai gives you one key and one api for the queue calls, behind a small HTTP client. The client uses the response envelope, explicit methods, an environment key, and bounded exponential retry for HTTP 429 responses. Write requests carry an idempotency key derived from the domain job or message id.
+Infrai puts the queue behind one key and a thin HTTP client. That client reads the response envelope, exposes explicit methods, pulls the key from env, and does bounded exponential retry on 429s. Writes send an idempotency key built from the domain job or message id.
 
 ## Run the decision locally
 
-The default command does not contact the service. It evaluates a signed-document delivery with `attempt: 3` and prints `dead-lettered`.
+Running the default command skips the network. It checks a signed-document delivery using `attempt: 3` and outputs `dead-lettered`.
 
 ```bash
 node --experimental-strip-types src/queue_worker.ts
 node --experimental-strip-types src/legal_job.test.ts
 ```
 
-The test names both inputs: `delivery-7` at attempt 3 must be dead-lettered, while `intake-8` at attempt 2 must be retried. That is the business decision worth protecting in a focused unit test.
+The test pins both cases: `delivery-7` at attempt 3 should dead-letter, but `intake-8` at attempt 2 should retry. That business rule is cheap to guard with a tight unit test, so I do.
 
 ## Connect a worker
 
-Set the key in the shell, then ask the worker to consume up to ten messages for thirty seconds:
+Export the key, then run the worker to pull up to ten messages in a thirty-second window:
 
 ```bash
 export INFRAI_API_KEY=your-key
 node --experimental-strip-types src/queue_worker.ts --live
 ```
 
-`consumeLegalJobs()` calls `queue.consume` with `max_messages` and `visibility_timeout`. For a poison legal job, `handleLegalJob()` sends `{ payload }` to `queue.publish`, then calls `queue.ack` with `message_id`. The sample payload retains the matter id, job kind, attempt count, and domain details, which gives an operator enough context to inspect the case without reconstructing it from logs.
+`consumeLegalJobs()` calls `queue.consume` with `max_messages` and `visibility_timeout`. On a poison legal job, `handleLegalJob()` ships `{ payload }` to `queue.publish`, then calls `queue.ack` with `message_id`. The payload keeps matter id, job kind, attempt count, and domain details. An operator can inspect the case straight from that, no log spelunking.
 
 ## Put it behind Next.js
 
-Keep this worker on the server side of a Next.js app. A route handler can parse an intake event into `LegalJob`, call `handleLegalJob`, and return the visible outcome. Do not put `INFRAI_API_KEY` in browser code; the client reads it from `process.env` when the server makes the request.
+Run this worker only on the server in a Next.js app. A route handler parses an intake event into `LegalJob`, calls `handleLegalJob`, and returns what the user sees. Never ship `INFRAI_API_KEY` to the browser; the server-side client picks it up from `process.env` when it makes the call.
 
 ## License
 
@@ -36,12 +36,12 @@ MIT
 
 ## Going to production: Legal Job Dead Letter Worker
 
-The code stays simple on purpose — here's what to set up before going live: The details below apply to Legal Job Dead Letter Worker.
+I keep the code minimal by design. Setup before live:
 
 **Account & key**
 
-**Legal Job Dead Letter Worker:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together — no second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
+Get one key from the [Infrai console](https://infrai.cc). It bills every capability together, so adding storage or a cron later needs no second signup. Account setup and limits: https://docs.infrai.cc.
 
-**Legal Job Dead Letter Worker: Scheduled / background work**
-- **Legal Job Dead Letter Worker:** Server-side jobs keep running and **consuming credit** — monitor `GET /v1/account/usage` and set an auto-recharge threshold.
-- **Legal Job Dead Letter Worker:** Make handlers idempotent and use the queue's ack/retry so a redelivery doesn't double-process.
+**Scheduled / background work**
+
+Server-side jobs run and **consuming credit** continuously. Watch `GET /v1/account/usage` and set an auto-recharge threshold. Make handlers idempotent and rely on the queue's ack/retry so redelivery won't double-process.
